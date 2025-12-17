@@ -2,6 +2,15 @@
 
 An intelligent drone swarm simulation system for autonomous exploration with human-in-the-loop target verification.
 
+## Purpose
+
+This program simulates multiple drones moving in a 2D environment (grid/map). Each drone can:
+- Move around to explore regions
+- Detect targets within a configurable radius
+- Avoid collisions with other drones
+- Communicate findings to a human operator
+- Visualize their movement and exploration path in real-time using Tkinter GUI + Pillow (PIL)
+
 ## Features
 
 - **Autonomous Exploration**: 20 drones systematically explore a 50×50 grid environment
