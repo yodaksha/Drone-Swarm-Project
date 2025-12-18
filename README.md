@@ -66,6 +66,3 @@ Edit the `Config` class to adjust:
 - **Discard Target**: Reject false positive
 - **Queue List**: Switch between drones awaiting investigation
 
-## License
-
-MIT License
