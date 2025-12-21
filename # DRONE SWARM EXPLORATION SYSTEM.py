@@ -227,6 +227,52 @@ class DroneSimulation:
 
         logging.info(f"Simulation initialized - {Config.NUM_DRONES} drones, {len(self.env.targets)} targets")
         logging.info(f"Targets at: {self.env.targets}")
+     def assign_regions_centrally(self):
+        """
+        Centralized region assignment considering all drones together
+        """
+        
+        # Get available drones
+        available_drones = [
+           d for d in self.drones
+           if d.status == 'exploring'
+           and d.assigned_region is None
+           and d.power_remaining > 0
+        ]
+
+        # Get unexplored regions
+        unexplored_regions = [
+            r for r in self.all_regions if r not in self.explored_regions
+        ]
+
+        if not available_drones or not unexplored_regions:
+          return
+
+        # Sort drones by remaining power (high power first)
+        available_drones.sort(key=lambda d: d.power_remaining, reverse=True)
+
+        assigned_regions = set()
+
+        for drone in available_drones:
+            best_region = None
+            best_distance = float('inf')
+
+            for region in unexplored_regions:
+              if region in assigned_regions:
+                continue
+
+            rx, ry = region
+            dist = math.sqrt((drone.x - rx) ** 2 + (drone.y - ry) ** 2)
+            cost=dist
+
+            if cost < best_distance:
+                best_distance = cost
+                best_region = region
+
+        if best_region is not None:
+            drone.assigned_region = best_region
+            drone.region_explore_time = 0
+            assigned_regions.add(best_region)
 
     def run(self):
         while self.running:
@@ -285,18 +331,12 @@ class DroneSimulation:
                 pass
 
             # Update drones using algorithm
+            # Centralized region assignment
+            self.assign_regions_centrally()
+
             for drone in self.drones:
                 if drone.status == 'exploring' and drone.power_remaining > 0:
-                    # Assign region if needed
-                    if drone.assigned_region is None:
-                        # Find closest unexplored region
-                        unexplored = [r for r in self.all_regions if r not in self.explored_regions]
-                        if unexplored:
-                            # Assign closest region to minimize travel
-                            closest_region = min(unexplored, 
-                                key=lambda r: math.sqrt((drone.x - r[0])**2 + (drone.y - r[1])**2))
-                            drone.assigned_region = closest_region
-                            drone.region_explore_time = 0
+                   
 
                     if drone.assigned_region is not None:
                         rx, ry = drone.assigned_region
@@ -305,8 +345,12 @@ class DroneSimulation:
 
                         if drone.region_explore_time >= self.explore_time_threshold:
                             self.explored_regions.add(drone.assigned_region)
+                            completed_region = drone.assigned_region
+                            self.explored_regions.add(completed_region)
                             drone.assigned_region = None
-                            logging.debug(f"Drone {drone.id} completed region {drone.assigned_region}")
+                            logging.debug(f"Drone {drone.id} completed region {completed_region}")
+
+                            
 
                     # Apply collision avoidance
                     drone.avoid_collision(self.drones)
