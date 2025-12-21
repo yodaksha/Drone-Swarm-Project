@@ -52,6 +52,7 @@ class Config:
     # Collision avoidance
     MIN_DRONE_DISTANCE = 1.5
     AVOIDANCE_FORCE = 0.3
+    
 
 class Environment:
 
