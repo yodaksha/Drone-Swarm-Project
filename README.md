@@ -37,7 +37,20 @@ pip install numpy pillow scipy
 
 ## Usage
 
-Run the simulation:
+**Method 1: Direct Python command**
+```bash
+python "# DRONE SWARM EXPLORATION SYSTEM.py"
+```
+
+**Method 2: Using the run script**
+```bash
+./run.sh
+```
+
+**Note:** If you encounter "No module named 'scipy'" errors, make sure scipy is installed in your active Python environment:
+```bash
+pip install scipy
+```
 
 ```bash
 python "# DRONE SWARM EXPLORATION SYSTEM.py"
@@ -82,3 +95,36 @@ Edit the `Config` class to adjust:
 - **Discard Target**: Reject false positive
 - **Queue List**: Switch between drones awaiting investigation
 
+## Troubleshooting
+
+### "No module named 'scipy'" Error
+
+If you see this error, install scipy in your current Python environment:
+
+```bash
+# Check which Python you're using
+which python
+
+# Install scipy
+pip install scipy pillow numpy
+
+# Or if using conda
+conda install scipy pillow numpy
+```
+
+### Multiple Python Installations
+
+If you have multiple Python versions installed, make sure to install packages in the correct environment:
+
+```bash
+# Use python3 explicitly
+python3 "# DRONE SWARM EXPLORATION SYSTEM.py"
+
+# Or check your Python path
+python --version
+pip --version
+```
+
+## License
+
+MIT License
