@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # DRONE SWARM EXPLORATION SYSTEM 
 
 
