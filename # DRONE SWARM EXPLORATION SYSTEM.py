@@ -14,6 +14,7 @@ from datetime import datetime
 import threading
 import queue
 import logging
+from scipy.spatial import Voronoi, distance
 
 # Configure logging
 logging.basicConfig(
@@ -52,6 +53,10 @@ class Config:
     # Collision avoidance
     MIN_DRONE_DISTANCE = 1.5
     AVOIDANCE_FORCE = 0.3
+    
+    # Voronoi-based exploration
+    VORONOI_UPDATE_INTERVAL = 20  # Recompute Voronoi every N iterations
+    USE_VORONOI = True  # Set to False to use greedy algorithm
 
 class Environment:
 
@@ -180,7 +185,7 @@ class Drone:
         self.vy += avoidance_y
 
     def update(self, env_size):
-        """Update drone position and power"""
+        
         if self.power_remaining > 0:
             self.x += self.vx
             self.y += self.vy
@@ -224,9 +229,98 @@ class DroneSimulation:
         # Queues for communication
         self.to_simulation = queue.Queue()
         self.to_ui = queue.Queue()
+        
+        # Voronoi-based exploration state
+        self.voronoi_assignments = {}
+        self.last_voronoi_update = -Config.VORONOI_UPDATE_INTERVAL  # Force first update
+        self.last_drone_positions = None
 
         logging.info(f"Simulation initialized - {Config.NUM_DRONES} drones, {len(self.env.targets)} targets")
         logging.info(f"Targets at: {self.env.targets}")
+        logging.info(f"Using {'Voronoi' if Config.USE_VORONOI else 'Greedy'} exploration algorithm")
+    
+    def assign_regions_voronoi(self, unexplored_regions):
+       
+        # Get active exploring drones
+        active_drones = [d for d in self.drones 
+                        if d.power_remaining > 0 and d.status == 'exploring']
+        
+        if not active_drones or not unexplored_regions:
+            return {}
+        
+        # Need at least 4 points for Voronoi in 2D
+        if len(active_drones) < 4:
+            # Fall back to greedy for small number of drones
+            return self.assign_regions_greedy(active_drones, unexplored_regions)
+        
+        try:
+            # Extract drone positions
+            drone_positions = np.array([[d.x, d.y] for d in active_drones])
+            
+            # Create Voronoi diagram
+            vor = Voronoi(drone_positions)
+            
+            # Assign each region to nearest drone (Voronoi cell)
+            assignments = {d.id: [] for d in active_drones}
+            
+            for region in unexplored_regions:
+                # Calculate region center
+                region_center = np.array([region[0] + self.region_size / 2, 
+                                         region[1] + self.region_size / 2])
+                
+                # Find which drone's Voronoi cell this region belongs to
+                distances = distance.cdist([region_center], drone_positions)[0]
+                closest_drone_idx = np.argmin(distances)
+                
+                drone = active_drones[closest_drone_idx]
+                assignments[drone.id].append(region)
+            
+            # Log assignment statistics
+            non_empty = sum(1 for regions in assignments.values() if regions)
+            total_assigned = sum(len(regions) for regions in assignments.values())
+            logging.debug(f"Voronoi assignment: {non_empty} drones with regions, {total_assigned} total regions")
+            
+            return assignments
+            
+        except Exception as e:
+            logging.warning(f"Voronoi assignment failed: {e}, falling back to greedy")
+            return self.assign_regions_greedy(active_drones, unexplored_regions)
+    
+    def assign_regions_greedy(self, active_drones, unexplored_regions):
+        
+        assignments = {d.id: [] for d in active_drones}
+        
+        # Simple partitioning: each drone gets nearby regions
+        for drone in active_drones:
+            # Find regions within reasonable distance
+            nearby_regions = sorted(unexplored_regions, 
+                key=lambda r: math.sqrt((drone.x - r[0])**2 + (drone.y - r[1])**2))[:5]
+            assignments[drone.id] = nearby_regions
+        
+        return assignments
+    
+    def should_update_voronoi(self):
+        
+        # Check iteration interval
+        if self.iteration - self.last_voronoi_update < Config.VORONOI_UPDATE_INTERVAL:
+            return False
+        
+        # Check if drone positions changed significantly
+        if self.last_drone_positions is not None:
+            current_positions = [(d.x, d.y) for d in self.drones 
+                               if d.power_remaining > 0 and d.status == 'exploring']
+            
+            if len(current_positions) == len(self.last_drone_positions):
+                max_movement = 0
+                for curr, last in zip(current_positions, self.last_drone_positions):
+                    movement = math.sqrt((curr[0] - last[0])**2 + (curr[1] - last[1])**2)
+                    max_movement = max(max_movement, movement)
+                
+                # Only update if significant movement occurred
+                if max_movement < 3.0:
+                    return False
+        
+        return True
 
     def run(self):
         while self.running:
@@ -284,19 +378,37 @@ class DroneSimulation:
             except queue.Empty:
                 pass
 
+            # Update Voronoi assignments periodically
+            unexplored = [r for r in self.all_regions if r not in self.explored_regions]
+            
+            if Config.USE_VORONOI and self.should_update_voronoi() and unexplored:
+                self.voronoi_assignments = self.assign_regions_voronoi(unexplored)
+                self.last_voronoi_update = self.iteration
+                self.last_drone_positions = [(d.x, d.y) for d in self.drones 
+                                            if d.power_remaining > 0 and d.status == 'exploring']
+                logging.info(f"Voronoi assignments updated at iteration {self.iteration}")
+
             # Update drones using algorithm
             for drone in self.drones:
                 if drone.status == 'exploring' and drone.power_remaining > 0:
                     # Assign region if needed
                     if drone.assigned_region is None:
-                        # Find closest unexplored region
-                        unexplored = [r for r in self.all_regions if r not in self.explored_regions]
-                        if unexplored:
-                            # Assign closest region to minimize travel
-                            closest_region = min(unexplored, 
-                                key=lambda r: math.sqrt((drone.x - r[0])**2 + (drone.y - r[1])**2))
-                            drone.assigned_region = closest_region
-                            drone.region_explore_time = 0
+                        if Config.USE_VORONOI:
+                            # Voronoi-based assignment
+                            my_regions = self.voronoi_assignments.get(drone.id, [])
+                            if my_regions:
+                                # Pick closest from assigned regions
+                                closest_region = min(my_regions,
+                                    key=lambda r: math.sqrt((drone.x - r[0])**2 + (drone.y - r[1])**2))
+                                drone.assigned_region = closest_region
+                                drone.region_explore_time = 0
+                        else:
+                            # Greedy assignment (original algorithm)
+                            if unexplored:
+                                closest_region = min(unexplored, 
+                                    key=lambda r: math.sqrt((drone.x - r[0])**2 + (drone.y - r[1])**2))
+                                drone.assigned_region = closest_region
+                                drone.region_explore_time = 0
 
                     if drone.assigned_region is not None:
                         rx, ry = drone.assigned_region
@@ -335,7 +447,7 @@ class DroneSimulation:
             time.sleep(Config.SIMULATION_DELAY)
 
     def stop(self):
-        """Stop the simulation"""
+        
         self.running = False
 
 
@@ -367,7 +479,7 @@ class CommandCenter:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def setup_ui(self):
-        """Setup the UI layout"""
+       
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 

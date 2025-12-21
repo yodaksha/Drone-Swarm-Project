@@ -26,12 +26,13 @@ This program simulates multiple drones moving in a 2D environment (grid/map). Ea
 - Python 3.7+
 - NumPy
 - Pillow (PIL)
+- SciPy (for Voronoi tessellation)
 - tkinter (usually comes with Python)
 
 ## Installation
 
 ```bash
-pip install numpy pillow
+pip install numpy pillow scipy
 ```
 
 ## Usage
@@ -50,6 +51,21 @@ Edit the `Config` class to adjust:
 - Detection radius
 - Battery capacity
 - Exploration parameters
+- **Algorithm selection**: Toggle between Voronoi and Greedy (`USE_VORONOI = True/False`)
+- **Voronoi update interval**: How often to recompute assignments
+
+### Exploration Algorithms
+
+**Voronoi-based (Default):**
+- Divides environment based on drone positions
+- Each drone explores its "territory"
+- Better load balancing and coordination
+- Scales well to 100+ drones
+
+**Greedy (Fallback):**
+- Each drone picks nearest unexplored region
+- Simple and fast
+- Set `Config.USE_VORONOI = False` to use
 
 ## How It Works
 
